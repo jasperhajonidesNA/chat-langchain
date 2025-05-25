@@ -43,3 +43,53 @@ Looking to use or modify this Use Case Accelerant for your own needs? We've adde
 - **[LangSmith](./LANGSMITH.md)**: A guide on adding robustness to your application using LangSmith. Covers observability, evaluations, and feedback.
 - **[Production](./PRODUCTION.md)**: Documentation on preparing your application for production usage. Explains different security considerations, and more.
 - **[Deployment](./DEPLOYMENT.md)**: How to deploy your application to production. Covers setting up production databases, deploying the frontend, and more.
+
+## Deploying the frontend to GCP
+
+While the recommended hosting provider is Vercel, you can also run the Next.js
+frontend on Google Cloud Run. A `Dockerfile` is available in
+`./frontend` for this purpose. To deploy:
+
+```bash
+cd frontend
+gcloud builds submit --tag gcr.io/<PROJECT_ID>/chat-langchain-frontend
+gcloud run deploy chat-langchain-frontend \
+  --image gcr.io/<PROJECT_ID>/chat-langchain-frontend \
+  --region <REGION> --platform managed --allow-unauthenticated \
+  --set-env-vars NEXT_PUBLIC_API_URL=<backend-url>,API_BASE_URL=<backend-url>,LANGCHAIN_API_KEY=<langsmith-key>
+```
+
+Replace the placeholders with your own project information and environment
+variables. After deployment completes, Cloud Run will provide a public URL for
+your app.
+
+### Testing the Docker image locally
+
+You can build and run the frontend Docker image before deploying:
+
+```bash
+cd frontend
+docker build -t chat-langchain-frontend .
+docker run -p 8080:8080 chat-langchain-frontend
+```
+
+Then open `http://localhost:8080` in your browser to test the app.
+
+### GCP authentication and permissions
+
+If deployment commands fail with messages like
+"user is forbidden from accessing the bucket" check these points:
+
+1. **Service Usage Consumer role** – grant your user account
+   `roles/serviceusage.serviceUsageConsumer` in IAM.
+2. **Organization policies** – verify there are no organization policies
+   restricting Cloud Build or Storage access.
+3. **Cloud Build API** – ensure it is enabled in APIs & Services.
+4. **Cloud Build service account** – `[PROJECT_NUMBER]@cloudbuild.gserviceaccount.com`
+   needs Storage permissions (e.g. Storage Object Admin).
+5. **Billing and quotas** – confirm billing is active and quotas are OK.
+6. **Refresh credentials** – run `gcloud auth login` and
+   `gcloud auth application-default login`.
+
+Use `gcloud auth list` to verify which accounts are active before retrying the
+deployment commands.
