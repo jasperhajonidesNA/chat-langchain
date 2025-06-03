@@ -28,3 +28,4 @@ MORE_INFO_SYSTEM_PROMPT = _fetch_prompt("margot-na/more_info")
 RESEARCH_PLAN_SYSTEM_PROMPT = _fetch_prompt("margot-na/researcher")
 GENERAL_SYSTEM_PROMPT = _fetch_prompt("margot-na/irrelevant_response")
 RESPONSE_SYSTEM_PROMPT = _fetch_prompt("margot-na/synthesizer")
+
