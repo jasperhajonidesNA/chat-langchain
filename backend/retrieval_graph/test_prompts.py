@@ -20,9 +20,7 @@ def list_prompts():
 def test_langsmith_connection():
     try:
         # Example using one of your prompts
-        prompt = client.pull_prompt(
-            "margot-na/generate-queries"
-        )
+        prompt = client.pull_prompt("margot-na/generate-queries")
 
         print("Successfully connected to LangSmith!")
         print("Prompt content:", prompt.messages[0].prompt.template)
