@@ -17,6 +17,15 @@ from backend.retrieval_graph.researcher_graph.graph import graph as researcher_g
 from backend.retrieval_graph.state import AgentState, InputState, Router
 from backend.utils import format_docs, load_chat_model
 
+# TO-DO: Check whether the router['logic'] should be outputted by the prompt?
+
+def run_input_guardrail(state: AgentState, *, config: RunnableConfig):
+    """Run the input guardrail prompt."""
+    configuration = AgentConfiguration.from_runnable_config(config)
+    model = load_chat_model(configuration.input_guardrail_model)
+    messages = [{"role": "system", "content": configuration.input_guardrail_system_prompt}] + state.messages
+    response = model.invoke(messages)
+    return {"input_guardrail": response}
 
 async def analyze_and_route_query(
     state: AgentState, *, config: RunnableConfig
@@ -51,20 +60,8 @@ async def analyze_and_route_query(
     return {"router": response}
 
 
-def route_query(
-    state: AgentState,
-) -> Literal["create_research_plan", "ask_for_more_info", "respond_to_general_query"]:
-    """Determine the next step based on the query classification.
-
-    Args:
-        state (AgentState): The current state of the agent, including the router's classification.
-
-    Returns:
-        Literal["create_research_plan", "ask_for_more_info", "respond_to_general_query"]: The next step to take.
-
-    Raises:
-        ValueError: If an unknown router type is encountered.
-    """
+def route_query(state: AgentState) -> Literal["create_research_plan", "ask_for_more_info", "respond_to_general_query"]:
+    """Determine the next step based on the query classification."""
     _type = state.router["type"]
     if _type == "langchain":
         return "create_research_plan"
@@ -230,14 +227,28 @@ async def respond(
 
 
 builder = StateGraph(AgentState, input=InputState, config_schema=AgentConfiguration)
-builder.add_node(create_research_plan)
-builder.add_node(conduct_research)
-builder.add_node(respond)
 
-builder.add_edge(START, "create_research_plan")
+# Add all nodes
+#builder.add_node("run_input_guardrail", run_input_guardrail)
+builder.add_node("analyze_and_route_query", analyze_and_route_query)
+builder.add_node("create_research_plan", create_research_plan)
+builder.add_node("ask_for_more_info", ask_for_more_info)
+builder.add_node("respond_to_general_query", respond_to_general_query)
+builder.add_node("conduct_research", conduct_research)
+builder.add_node("respond", respond)
+
+# Flow with proper routing
+#builder.add_edge(START, "run_input_guardrail")
+#builder.add_conditional_edges("run_input_guardrail", check_input_guardrail)
+builder.add_edge(START, "analyze_and_route_query")
+builder.add_conditional_edges("analyze_and_route_query", route_query)
+
+# Different paths based on routing
 builder.add_edge("create_research_plan", "conduct_research")
 builder.add_conditional_edges("conduct_research", check_finished)
 builder.add_edge("respond", END)
+builder.add_edge("ask_for_more_info", END)
+builder.add_edge("respond_to_general_query", END)
 
 # Compile into a graph object that you can invoke and deploy.
 graph = builder.compile()

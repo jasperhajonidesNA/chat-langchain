@@ -12,19 +12,18 @@ from bs4 import BeautifulSoup, SoupStrainer
 from langchain.document_loaders import RecursiveUrlLoader, SitemapLoader
 from langchain.indexes import SQLRecordManager, index
 from langchain.utils.html import PREFIXES_TO_IGNORE_REGEX, SUFFIXES_TO_IGNORE_REGEX
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
 from langchain_weaviate import WeaviateVectorStore
 
 from backend.constants import WEAVIATE_DOCS_INDEX_NAME
 from backend.embeddings import get_embeddings_model
 from backend.parser import langchain_docs_extractor
-from backend.utils import sanitize_weaviate_url
 
 
 from langchain.schema import Document
 from langchain_community.document_loaders import (
     DirectoryLoader,
-    UnstructuredWordDocumentLoader,
+    TextLoader,
 )
 
 import nltk
@@ -33,18 +32,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Choose a directory that is in the search path, or add your own
-nltk_data_dir = os.path.expanduser("~/nltk_data")
+nltk_data_dir = os.path.expanduser('~/nltk_data')
 if nltk_data_dir not in nltk.data.path:
     nltk.data.path.append(nltk_data_dir)
 
 # Download to that directory
-nltk.download("averaged_perceptron_tagger_eng", download_dir=nltk_data_dir)
-nltk.download("punkt", download_dir=nltk_data_dir)
+nltk.download('averaged_perceptron_tagger_eng', download_dir=nltk_data_dir)
+nltk.download('punkt', download_dir=nltk_data_dir)
 
 print("NLTK data path:", nltk.data.path)
 
 try:
-    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+    nltk.data.find('taggers/averaged_perceptron_tagger_eng')
     print("averaged_perceptron_tagger_eng found!")
 except LookupError:
     print("averaged_perceptron_tagger_eng NOT found!")
@@ -128,18 +127,20 @@ def _clean(text: str) -> str:
 #  Main loader
 # --------------------------------------------------------------------------- #
 def load_methodology_docs(
-    root: str = "/Users/margot.vanlaar/Documents/Full Methodology 2025",
+    root: str = "/Users/margot.vanlaar/Documents/Module Methodologies",
 ) -> List[Document]:
     """
-    Recursively scans *root* for .docx files, extracts text, and returns a list
+    Recursively scans *root* for .md files, loads raw markdown content, and returns a list
     of LangChain `Document` objects with metadata fields that mirror the ones
     you already use for web-sourced content.
+
+    PRESERVES markdown formatting (headers, etc.) for downstream header-based splitting.
 
     Returns
     -------
     List[Document]
-        Each document's `page_content` is the full cleaned text of the .docx
-        file.  Metadata keys:
+        Each document's `page_content` is the raw markdown text of the .md
+        file (with headers preserved).  Metadata keys:
 
         * source      – absolute file path
         * loc         – same as source (keeps interface parity with sitemap loader)
@@ -147,12 +148,12 @@ def load_methodology_docs(
         * description – first 200 characters of text (empty if none)
         * language    – "en"  (change if you detect others)
     """
-    # 1) Load every .docx under *root* (UnstructuredWordDocumentLoader handles DOC/DOCX)
+    # 1) Load every .md under *root* (TextLoader preserves raw markdown)
     dir_loader = DirectoryLoader(
         root,
-        glob="**/*[!~$]*.docx",  # exclude files starting with ~$
-        loader_cls=UnstructuredWordDocumentLoader,
-        loader_kwargs={"mode": "single"},
+        glob="**/*[!~$]*.md",  # exclude files starting with ~$
+        loader_cls=TextLoader,
+        loader_kwargs={"encoding": "utf-8"}
     )
     docs = dir_loader.load()  # synchronous
 
@@ -166,7 +167,6 @@ def load_methodology_docs(
 
         doc.metadata.update(
             {
-                "loc": raw_path,
                 "title": title,
                 "description": snippet,
                 "language": "en",
@@ -209,12 +209,77 @@ def load_api_docs():
     ).load()
 
 
+def clean_metadata_keys(metadata: dict) -> dict:
+    """Convert metadata keys to be GraphQL compatible (no spaces, valid names)."""
+    clean_metadata = {}
+    for key, value in metadata.items():
+        # Convert spaces to underscores and make lowercase
+        clean_key = key.replace(" ", "_").replace("-", "_").lower()
+        # Only keep alphanumeric and underscores
+        clean_key = "".join(c for c in clean_key if c.isalnum() or c == "_")
+        # Ensure it starts with a letter or underscore
+        if clean_key and not (clean_key[0].isalpha() or clean_key[0] == "_"):
+            clean_key = "field_" + clean_key
+        clean_metadata[clean_key] = value
+    return clean_metadata
+
+
+def process_documents(docs_from_methodology: List[Document], text_splitter) -> List[Document]:
+    """Process documents by splitting on markdown headers and cleaning metadata."""
+    docs_transformed = []
+    
+    for doc in docs_from_methodology:
+        logger.info(f"Processing document: {doc.metadata.get('source', 'Unknown')}")
+        
+        # Split by markdown headers
+        header_splits = text_splitter.split_text(doc.page_content)
+        logger.info(f"split_text returned {len(header_splits)} items of type: {type(header_splits[0]) if header_splits else 'None'}")
+        
+        # Handle based on what's actually returned
+        for split in header_splits:
+            if isinstance(split, Document):
+                # If it's already a Document, preserve original metadata and update
+                split.metadata.update(doc.metadata)
+                docs_transformed.append(split)
+            else:
+                # If it's a string, create Document with original metadata
+                new_doc = Document(
+                    page_content=str(split),
+                    metadata=doc.metadata.copy()
+                )
+                docs_transformed.append(new_doc)
+    
+    # Filter out tiny chunks
+    docs_transformed = [doc for doc in docs_transformed if len(doc.page_content) > 10]
+    
+    # Clean metadata and ensure required fields
+    for doc in docs_transformed:
+        doc.metadata = clean_metadata_keys(doc.metadata)
+        if "source" not in doc.metadata:
+            doc.metadata["source"] = ""
+        if "title" not in doc.metadata:
+            doc.metadata["title"] = ""
+    
+    return docs_transformed
+
+
 def ingest_docs():
-    WEAVIATE_URL = sanitize_weaviate_url(os.environ["WEAVIATE_URL"])
+    """Main ingestion function - loads, processes, and indexes methodology documents."""
+    # Environment setup
+    WEAVIATE_URL = os.environ["WEAVIATE_URL"]
     WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
     RECORD_MANAGER_DB_URL = os.environ["RECORD_MANAGER_DB_URL"]
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1540, chunk_overlap=128)
+    # Initialize components
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+        ("####", "Header 4"),
+        ("#####", "Header 5"),
+        ("######", "Header 6"),
+    ]
+    text_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
     embedding = get_embeddings_model()
 
     with weaviate.connect_to_weaviate_cloud(
@@ -222,6 +287,8 @@ def ingest_docs():
         auth_credentials=weaviate.classes.init.Auth.api_key(WEAVIATE_API_KEY),
         skip_init_checks=True,
     ) as weaviate_client:
+        
+        # Setup vector store and record manager
         vectorstore = WeaviateVectorStore(
             client=weaviate_client,
             index_name=WEAVIATE_DOCS_INDEX_NAME,
@@ -235,37 +302,14 @@ def ingest_docs():
         )
         record_manager.create_schema()
 
-        # docs_from_documentation = load_langchain_docs()
-        # logger.info(f"Loaded {len(docs_from_documentation)} docs from documentation")
-        # docs_from_api = load_api_docs()
-        # logger.info(f"Loaded {len(docs_from_api)} docs from API")
-        # docs_from_langsmith = load_langsmith_docs()
-        # logger.info(f"Loaded {len(docs_from_langsmith)} docs from LangSmith")
-        # docs_from_langgraph = load_langgraph_docs()
-        # logger.info(f"Loaded {len(docs_from_langgraph)} docs from LangGraph")
+        # Load and process documents
         docs_from_methodology = load_methodology_docs()
         logger.info(f"Loaded {len(docs_from_methodology)} docs from Methodology")
+        
+        docs_transformed = process_documents(docs_from_methodology, text_splitter)
+        logger.info(f"Final chunk count: {len(docs_transformed)}")
 
-        docs_transformed = text_splitter.split_documents(
-            # docs_from_documentation
-            # + docs_from_api
-            # + docs_from_langsmith
-            # + docs_from_langgraph
-            docs_from_methodology
-        )
-        docs_transformed = [
-            doc for doc in docs_transformed if len(doc.page_content) > 10
-        ]
-
-        # We try to return 'source' and 'title' metadata when querying vector store and
-        # Weaviate will error at query time if one of the attributes is missing from a
-        # retrieved document.
-        for doc in docs_transformed:
-            if "source" not in doc.metadata:
-                doc.metadata["source"] = ""
-            if "title" not in doc.metadata:
-                doc.metadata["title"] = ""
-
+        # Index documents
         indexing_stats = index(
             docs_transformed,
             record_manager,
@@ -275,16 +319,14 @@ def ingest_docs():
             force_update=(os.environ.get("FORCE_UPDATE") or "false").lower() == "true",
         )
 
+        # Report results
         logger.info(f"Indexing stats: {indexing_stats}")
         num_vecs = (
             weaviate_client.collections.get(WEAVIATE_DOCS_INDEX_NAME)
             .aggregate.over_all()
             .total_count
         )
-        logger.info(
-            f"LangChain now has this many vectors: {num_vecs}",
-        )
-
+        logger.info(f"LangChain now has this many vectors: {num_vecs}")
 
 if __name__ == "__main__":
     ingest_docs()

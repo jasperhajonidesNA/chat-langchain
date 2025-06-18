@@ -10,7 +10,6 @@ from langchain_weaviate import WeaviateVectorStore
 
 from backend.configuration import BaseConfiguration
 from backend.constants import WEAVIATE_DOCS_INDEX_NAME
-from backend.utils import sanitize_weaviate_url
 
 
 def make_text_encoder(model: str) -> Embeddings:
@@ -29,19 +28,13 @@ def make_text_encoder(model: str) -> Embeddings:
 def make_weaviate_retriever(
     configuration: BaseConfiguration, embedding_model: Embeddings
 ) -> Iterator[BaseRetriever]:
-    cluster_url = sanitize_weaviate_url(os.environ["WEAVIATE_URL"])
-
     with weaviate.connect_to_weaviate_cloud(
-        cluster_url=cluster_url,
+        cluster_url=os.environ["WEAVIATE_URL"],
         auth_credentials=weaviate.classes.init.Auth.api_key(
             os.environ.get("WEAVIATE_API_KEY", "not_provided")
         ),
         skip_init_checks=True,
     ) as weaviate_client:
-        print(
-            f"Using Weaviate index '{WEAVIATE_DOCS_INDEX_NAME}' at {cluster_url}",
-            flush=True,
-        )
         store = WeaviateVectorStore(
             client=weaviate_client,
             index_name=WEAVIATE_DOCS_INDEX_NAME,
