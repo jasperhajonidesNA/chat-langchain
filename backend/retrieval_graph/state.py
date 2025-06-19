@@ -63,7 +63,7 @@ class Router(TypedDict):
     """Classify user query."""
 
     logic: str
-    type: Literal["more-info", "langchain", "general"]
+    type: Literal["create_research_plan", "unrelated_question"]
 
 
 # This is the primary state of your agent, where you can store any information
@@ -73,7 +73,9 @@ class Router(TypedDict):
 class AgentState(InputState):
     """State of the retrieval graph / agent."""
 
-    router: Router = field(default_factory=lambda: Router(type="general", logic=""))
+    input_guardrail: str = field(default="")
+    """The result of the input guardrail check. '0' means pass, '1' means fail."""
+    router: Router = field(default_factory=lambda: Router(type="unrelated_question", logic=""))
     """The router's classification of the user's query."""
     steps: list[str] = field(default_factory=list)
     """A list of steps in the research plan."""
