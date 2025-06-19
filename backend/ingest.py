@@ -9,7 +9,7 @@ from typing import List
 
 import weaviate
 from bs4 import BeautifulSoup, SoupStrainer
-from langchain.document_loaders import RecursiveUrlLoader, SitemapLoader
+# from langchain.document_loaders import RecursiveUrlLoader, SitemapLoader
 from langchain.indexes import SQLRecordManager, index
 from langchain.utils.html import PREFIXES_TO_IGNORE_REGEX, SUFFIXES_TO_IGNORE_REGEX
 from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
@@ -25,6 +25,8 @@ from langchain_community.document_loaders import (
     DirectoryLoader,
     TextLoader,
 )
+from langchain_community.document_loaders import RecursiveUrlLoader, SitemapLoader
+
 
 import nltk
 
@@ -291,14 +293,14 @@ def ingest_docs():
         # Setup vector store and record manager
         vectorstore = WeaviateVectorStore(
             client=weaviate_client,
-            index_name=WEAVIATE_DOCS_INDEX_NAME,
+            index_name=WEAVIATE_INDEX_NAME,
             text_key="text",
             embedding=embedding,
             attributes=["source", "title"],
         )
 
         record_manager = SQLRecordManager(
-            f"weaviate/{WEAVIATE_DOCS_INDEX_NAME}", db_url=RECORD_MANAGER_DB_URL
+            f"weaviate/{WEAVIATE_INDEX_NAME}", db_url=RECORD_MANAGER_DB_URL
         )
         record_manager.create_schema()
 
