@@ -145,21 +145,26 @@ async def create_research_plan(
 async def conduct_research(state: AgentState) -> dict[str, Any]:
     """Execute the first step of the research plan.
 
-    This function takes the first step from the research plan and uses it to conduct research.
+    This function takes the first step from the research plan and uses it to conduct research
+    by consulting methodology experts instead of traditional document retrieval.
 
     Args:
         state (AgentState): The current state of the agent, including the research plan steps.
 
     Returns:
-        dict[str, list[str]]: A dictionary with 'documents' containing the research results and
-                              'steps' containing the remaining research steps.
+        dict[str, Any]: A dictionary with 'methodology_responses' containing the expert responses and
+                        'steps' containing the remaining research steps.
 
     Behavior:
         - Invokes the researcher_graph with the first step of the research plan.
-        - Updates the state with the retrieved documents and removes the completed step.
+        - Updates the state with the methodology expert responses and removes the completed step.
     """
     result = await researcher_graph.ainvoke({"question": state.steps[0]})
-    return {"documents": result["documents"], "steps": state.steps[1:]}
+    return {
+        "methodology_responses": result["methodology_responses"], 
+        "steps": state.steps[1:],
+        "documents": "delete"  # Clear any existing documents since we're using methodology responses
+    }
 
 
 def check_finished(state: AgentState) -> Literal["respond", "conduct_research"]:
@@ -186,20 +191,22 @@ async def respond(
 ) -> dict[str, list[BaseMessage]]:
     """Generate a final response to the user's query based on the conducted research.
 
-    This function formulates a comprehensive answer using the conversation history and the documents retrieved by the researcher.
+    This function formulates a comprehensive answer using the conversation history and the 
+    methodology expert responses.
 
     Args:
-        state (AgentState): The current state of the agent, including retrieved documents and conversation history.
+        state (AgentState): The current state of the agent, including methodology responses and conversation history.
         config (RunnableConfig): Configuration with the model used to respond.
 
     Returns:
-        dict[str, list[str]]: A dictionary with a 'messages' key containing the generated response.
+        dict[str, list[BaseMessage]]: A dictionary with a 'messages' key containing the generated response.
     """
     configuration = AgentConfiguration.from_runnable_config(config)
     model = load_chat_model(configuration.response_model)
-    # TODO: add a re-ranker here
-    top_k = 20
-    context = format_docs(state.documents[:top_k])
+    
+    # Use methodology responses as context instead of documents
+    context = "\n\n".join(state.methodology_responses) if state.methodology_responses else "No specific methodology information available."
+    
     prompt = configuration.response_system_prompt.format(context=context)
     messages = [{"role": "system", "content": prompt}] + state.messages
     response = await model.ainvoke(messages)

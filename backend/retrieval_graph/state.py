@@ -81,6 +81,8 @@ class AgentState(InputState):
     """A list of steps in the research plan."""
     documents: Annotated[list[Document], reduce_docs] = field(default_factory=list)
     """Populated by the retriever. This is a list of documents that the agent can reference."""
+    methodology_responses: list[str] = field(default_factory=list)
+    """Responses from methodology experts that serve as context for the final response."""
     answer: str = field(default="")
     """Final answer. Useful for evaluations"""
     query: str = field(default="")
