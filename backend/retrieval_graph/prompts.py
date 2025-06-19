@@ -1,4 +1,7 @@
 from langsmith import Client
+from typing import Optional
+
+from langsmith.utils import LangSmithNotFoundError
 
 """Default prompts."""
 
