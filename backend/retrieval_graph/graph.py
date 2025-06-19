@@ -25,7 +25,16 @@ def run_input_guardrail(state: AgentState, *, config: RunnableConfig):
     model = load_chat_model(configuration.input_guardrail_model)
     messages = [{"role": "system", "content": configuration.input_guardrail_system_prompt}] + state.messages
     response = model.invoke(messages)
-    return {"input_guardrail": response}
+    return {"input_guardrail": response.content}
+
+def check_input_guardrail(state: AgentState) -> Literal["analyze_and_route_query", "respond_guardrail_failure"]:
+    """Check the input guardrail prompt."""
+    if state.input_guardrail == "0":
+        return "respond_guardrail_failure"
+    elif state.input_guardrail == "1":
+        return "analyze_and_route_query"
+    else:
+        raise ValueError(f"Unknown input guardrail {state.input_guardrail}")
 
 async def analyze_and_route_query(
     state: AgentState, *, config: RunnableConfig
@@ -60,20 +69,18 @@ async def analyze_and_route_query(
     return {"router": response}
 
 
-def route_query(state: AgentState) -> Literal["create_research_plan", "ask_for_more_info", "respond_to_general_query"]:
+def route_query(state: AgentState) -> Literal["create_research_plan", "respond_irrelevant_query"]:
     """Determine the next step based on the query classification."""
     _type = state.router["type"]
-    if _type == "langchain":
+    if _type == "create_research_plan":
         return "create_research_plan"
-    elif _type == "more-info":
-        return "ask_for_more_info"
-    elif _type == "general":
-        return "respond_to_general_query"
+    elif _type == "unrelated_question":
+        return "respond_irrelevant_query"
     else:
         raise ValueError(f"Unknown router type {_type}")
 
 
-async def ask_for_more_info(
+async def respond_irrelevant_query(
     state: AgentState, *, config: RunnableConfig
 ) -> dict[str, list[BaseMessage]]:
     """Generate a response asking the user for more information.
@@ -89,31 +96,7 @@ async def ask_for_more_info(
     """
     configuration = AgentConfiguration.from_runnable_config(config)
     model = load_chat_model(configuration.query_model)
-    system_prompt = configuration.more_info_system_prompt.format(
-        logic=state.router["logic"]
-    )
-    messages = [{"role": "system", "content": system_prompt}] + state.messages
-    response = await model.ainvoke(messages)
-    return {"messages": [response]}
-
-
-async def respond_to_general_query(
-    state: AgentState, *, config: RunnableConfig
-) -> dict[str, list[BaseMessage]]:
-    """Generate a response to a general query not related to LangChain.
-
-    This node is called when the router classifies the query as a general question.
-
-    Args:
-        state (AgentState): The current state of the agent, including conversation history and router logic.
-        config (RunnableConfig): Configuration with the model used to respond.
-
-    Returns:
-        dict[str, list[str]]: A dictionary with a 'messages' key containing the generated response.
-    """
-    configuration = AgentConfiguration.from_runnable_config(config)
-    model = load_chat_model(configuration.query_model)
-    system_prompt = configuration.general_system_prompt.format(
+    system_prompt = configuration.irrelevant_query_system_prompt.format(
         logic=state.router["logic"]
     )
     messages = [{"role": "system", "content": system_prompt}] + state.messages
@@ -223,32 +206,54 @@ async def respond(
     return {"messages": [response], "answer": response.content}
 
 
+async def respond_guardrail_failure(
+    state: AgentState, *, config: RunnableConfig
+) -> dict[str, list[BaseMessage]]:
+    """Generate a standard response when the input guardrail fails.
+
+    This function returns a polite message informing the user that their request
+    cannot be processed due to policy restrictions.
+
+    Args:
+        state (AgentState): The current state of the agent.
+        config (RunnableConfig): Configuration for the response.
+
+    Returns:
+        dict[str, list[BaseMessage]]: A dictionary with a 'messages' key containing the standard response.
+    """
+    from langchain_core.messages import AIMessage
+    
+    configuration = AgentConfiguration.from_runnable_config(config)
+    response = AIMessage(content=configuration.guardrail_failure_message)
+    return {"messages": [response]}
+
+
 # Define the graph
 
 
 builder = StateGraph(AgentState, input=InputState, config_schema=AgentConfiguration)
 
 # Add all nodes
-#builder.add_node("run_input_guardrail", run_input_guardrail)
+builder.add_node("run_input_guardrail", run_input_guardrail)
 builder.add_node("analyze_and_route_query", analyze_and_route_query)
 builder.add_node("create_research_plan", create_research_plan)
-builder.add_node("ask_for_more_info", ask_for_more_info)
-builder.add_node("respond_to_general_query", respond_to_general_query)
+builder.add_node("respond_irrelevant_query", respond_irrelevant_query)
 builder.add_node("conduct_research", conduct_research)
 builder.add_node("respond", respond)
+builder.add_node("respond_guardrail_failure", respond_guardrail_failure)
 
 # Flow with proper routing
-#builder.add_edge(START, "run_input_guardrail")
-#builder.add_conditional_edges("run_input_guardrail", check_input_guardrail)
-builder.add_edge(START, "analyze_and_route_query")
+builder.add_edge(START, "run_input_guardrail")
+builder.add_conditional_edges("run_input_guardrail", check_input_guardrail)
 builder.add_conditional_edges("analyze_and_route_query", route_query)
 
 # Different paths based on routing
 builder.add_edge("create_research_plan", "conduct_research")
 builder.add_conditional_edges("conduct_research", check_finished)
 builder.add_edge("respond", END)
-builder.add_edge("ask_for_more_info", END)
-builder.add_edge("respond_to_general_query", END)
+builder.add_edge("respond_irrelevant_query", END)
+builder.add_edge("respond_guardrail_failure", END)
+
 
 # Compile into a graph object that you can invoke and deploy.
 graph = builder.compile()

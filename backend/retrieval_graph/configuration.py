@@ -51,17 +51,10 @@ class AgentConfiguration(BaseConfiguration):
         },
     )
 
-    more_info_system_prompt: str = field(
-        default=prompts.MORE_INFO_SYSTEM_PROMPT,
+    irrelevant_query_system_prompt: str = field(
+        default=prompts.IRRELEVANT_QUERY_SYSTEM_PROMPT,
         metadata={
-            "description": "The system prompt used for asking for more information from the user."
-        },
-    )
-
-    general_system_prompt: str = field(
-        default=prompts.GENERAL_SYSTEM_PROMPT,
-        metadata={
-            "description": "The system prompt used for responding to general questions."
+            "description": "The system prompt used when a user asks a question that is unrelated."
         },
     )
 
@@ -82,4 +75,9 @@ class AgentConfiguration(BaseConfiguration):
     response_system_prompt: str = field(
         default=prompts.RESPONSE_SYSTEM_PROMPT,
         metadata={"description": "The system prompt used for generating responses."},
+    )
+
+    guardrail_failure_message: str = field(
+        default="""I apologize, but I'm unable to process your request. I’m here to help with any questions or clarifications you might have regarding NatureAlpha’s data or methodology. If there’s something specific you’d like to discuss or understand better, please let me know—I'm happy to assist!""",
+        metadata={"description": "The message shown to users when the input guardrail fails."},
     )
