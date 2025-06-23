@@ -51,28 +51,13 @@ class AgentConfiguration(BaseConfiguration):
         },
     )
 
-<<<<<<< HEAD
     irrelevant_query_system_prompt: str = field(
         default=prompts.IRRELEVANT_QUERY_SYSTEM_PROMPT,
-=======
-    more_info_system_prompt: str = field(
-        default=prompts.MORE_INFO_SYSTEM_PROMPT,
->>>>>>> 0824da9 (backend up to date)
         metadata={
             "description": "The system prompt used when a user asks a question that is unrelated."
         },
     )
 
-<<<<<<< HEAD
-=======
-    general_system_prompt: str = field(
-        default=prompts.GENERAL_SYSTEM_PROMPT,
-        metadata={
-            "description": "The system prompt used for responding to general questions."
-        },
-    )
-
->>>>>>> 0824da9 (backend up to date)
     research_plan_system_prompt: str = field(
         default=prompts.RESEARCH_PLAN_SYSTEM_PROMPT,
         metadata={
