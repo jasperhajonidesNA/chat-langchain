@@ -271,6 +271,7 @@ def ingest_docs():
     # Environment setup
     WEAVIATE_URL = os.environ["WEAVIATE_URL"]
     WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
+    WEAVIATE_INDEX_NAME = os.environ["WEAVIATE_INDEX_NAME"]
     RECORD_MANAGER_DB_URL = os.environ["RECORD_MANAGER_DB_URL"]
 
     # Initialize components

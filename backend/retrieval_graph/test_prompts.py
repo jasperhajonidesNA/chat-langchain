@@ -18,7 +18,7 @@ def test_langsmith_connection():
     try:
         # Example using one of your prompts
         prompt = client.pull_prompt(
-            "langchain-ai/chat-langchain-generate-queries-prompt"
+            "margot-na/generate-queries"
         )
 
         print("Successfully connected to LangSmith!")

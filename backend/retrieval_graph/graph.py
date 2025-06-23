@@ -69,7 +69,11 @@ async def analyze_and_route_query(
     return {"router": response}
 
 
+<<<<<<< HEAD
 def route_query(state: AgentState) -> Literal["create_research_plan", "respond_irrelevant_query"]:
+=======
+def route_query(state: AgentState) -> Literal["create_research_plan", "ask_for_more_info", "respond_to_general_query"]:
+>>>>>>> 0824da9 (backend up to date)
     """Determine the next step based on the query classification."""
     _type = state.router["type"]
     if _type == "create_research_plan":
