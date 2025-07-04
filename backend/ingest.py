@@ -130,7 +130,7 @@ def _clean(text: str) -> str:
 #  Main loader
 # --------------------------------------------------------------------------- #
 def load_methodology_docs(
-    root: str = "/Users/jasper.hajonides/Downloads/Module Methodologies/test",
+    root: str = "/Users/margot.vanlaar/Documents/Module Methodologies/",
 ) -> List[Document]:
     """
     Recursively scans *root* for .md files, loads raw markdown content, and returns a list
@@ -280,6 +280,7 @@ def ingest_docs():
 
     WEAVIATE_API_KEY = os.environ["WEAVIATE_API_KEY"]
     RECORD_MANAGER_DB_URL = os.environ["RECORD_MANAGER_DB_URL"]
+    WEAVIATE_INDEX_NAME = os.environ['WEAVIATE_INDEX_NAME']
 
     # Initialize components
     headers_to_split_on = [
@@ -333,7 +334,7 @@ def ingest_docs():
         # Report results
         logger.info(f"Indexing stats: {indexing_stats}")
         num_vecs = (
-            weaviate_client.collections.get(WEAVIATE_DOCS_INDEX_NAME)
+            weaviate_client.collections.get(os.getenv("WEAVIATE_INDEX_NAME"))
             .aggregate.over_all()
             .total_count
         )
